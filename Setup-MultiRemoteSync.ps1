@@ -1,23 +1,23 @@
+<#
+.SYNOPSIS
+    Sets up a Git repository with multiple remotes (GitLab and GitHub) for synchronization.
+#>
 param(
     # Full path (or relative) to the project folder on disk.
     # - For new projects: folder will be created (parent must exist).
     # - For existing projects: folder must already exist and contain a .git directory.
-    [Parameter(Mandatory = $true)]
     [string]$ProjectPath,
 
     # GitLab repository URL (mandatory in all modes).
-    [Parameter(Mandatory = $true)]
     [string]$GitLabUrl,
 
     # GitHub repository URL (mandatory in all modes).
-    [Parameter(Mandatory = $true)]
     [string]$GitHubUrl,
 
     # Scenario:
     #  - FromGitLab : new project, clone from GitLab then add GitHub as extra push URL
     #  - FromGitHub : new project, clone from GitHub then add GitLab as extra push URL
     #  - Existing   : project folder already exists; fix/restore multi-remote setup
-    [Parameter(Mandatory = $true)]
     [ValidateSet("FromGitLab", "FromGitHub", "Existing")]
     [string]$Mode,
 
@@ -31,6 +31,44 @@ param(
     [switch]$SyncNow
 )
 
+# --- Help / Usage Check ----------------------------------------------------
+
+if ([string]::IsNullOrWhiteSpace($ProjectPath) -or 
+    [string]::IsNullOrWhiteSpace($GitLabUrl) -or 
+    [string]::IsNullOrWhiteSpace($GitHubUrl) -or 
+    [string]::IsNullOrWhiteSpace($Mode)) {
+    
+    Write-Host "==================================================================" -ForegroundColor Cyan
+    Write-Host "   Multi-Remote Git Sync Setup Helper" -ForegroundColor Yellow
+    Write-Host "==================================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "This script configures a local Git repository to sync with both GitLab and GitHub."
+    Write-Host "It ensures that 'git push' updates both remotes simultaneously."
+    Write-Host ""
+    Write-Host "Usage:" -ForegroundColor Green
+    Write-Host "  .\Setup-MultiRemoteSync.ps1 -ProjectPath <path> -GitLabUrl <url> -GitHubUrl <url> -Mode <mode> [options]"
+    Write-Host ""
+    Write-Host "Parameters:" -ForegroundColor Green
+    Write-Host "  -ProjectPath  : Path to the local project folder."
+    Write-Host "  -GitLabUrl    : URL of the GitLab repository."
+    Write-Host "  -GitHubUrl    : URL of the GitHub repository."
+    Write-Host "  -Mode         : One of the following:"
+    Write-Host "                  'FromGitLab' : Clone from GitLab, add GitHub as mirror."
+    Write-Host "                  'FromGitHub' : Clone from GitHub, add GitLab as mirror."
+    Write-Host "                  'Existing'   : Configure an existing local repo."
+    Write-Host "  -Primary      : (Optional) Which remote to fetch from (Default: GitLab)."
+    Write-Host "  -SyncNow      : (Optional) Immediately push all branches/tags to both remotes."
+    Write-Host ""
+    Write-Host "Examples:" -ForegroundColor Green
+    Write-Host "  1. Clone from GitLab and setup mirror:"
+    Write-Host "     .\Setup-MultiRemoteSync.ps1 -ProjectPath 'C:\Repos\MyApp' -GitLabUrl '...' -GitHubUrl '...' -Mode FromGitLab"
+    Write-Host ""
+    Write-Host "  2. Configure existing folder:"
+    Write-Host "     .\Setup-MultiRemoteSync.ps1 -ProjectPath 'C:\Repos\MyApp' -GitLabUrl '...' -GitHubUrl '...' -Mode Existing"
+    Write-Host ""
+    exit 0
+}
+
 function Fail($msg) {
     Write-Error $msg
     exit 1
@@ -43,7 +81,10 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 }
 
 # Normalize path
-$ProjectPath = (Resolve-Path -LiteralPath $ProjectPath -ErrorAction SilentlyContinue)?.Path ?? $ProjectPath
+$resolvedPath = Resolve-Path -LiteralPath $ProjectPath -ErrorAction SilentlyContinue
+if ($resolvedPath) {
+    $ProjectPath = $resolvedPath.Path
+}
 
 $projectDirExists = Test-Path -LiteralPath $ProjectPath
 
@@ -145,10 +186,15 @@ switch ($Mode) {
         }
 
         # Decide primary URL based on parameter
-        $primaryUrl   = ($Primary -eq "GitLab") ? $GitLabUrl : $GitHubUrl
-        $secondaryUrl = ($Primary -eq "GitLab") ? $GitHubUrl : $GitLabUrl
+        if ($Primary -eq "GitLab") {
+            $primaryUrl   = $GitLabUrl
+            $secondaryUrl = $GitHubUrl
+        } else {
+            $primaryUrl   = $GitHubUrl
+            $secondaryUrl = $GitLabUrl
+        }
 
-        Write-Host "Setting origin primary (fetch) to $Primary: $primaryUrl"
+        Write-Host "Setting origin primary (fetch) to $($Primary): $primaryUrl"
         git remote set-url origin $primaryUrl | Out-Null
         if ($LASTEXITCODE -ne 0) { Fail "Failed to set origin primary URL." }
 
