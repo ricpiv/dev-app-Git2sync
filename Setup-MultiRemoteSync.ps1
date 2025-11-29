@@ -159,9 +159,9 @@ switch ($Mode) {
 
         Write-Host "Cloning from GitLab into: $TargetDir"
         Write-Host "Command: git clone `"$GitLabUrl`" `"$TargetDir`"" -ForegroundColor Gray
-        
-        # Use Start-Process to ensure output is visible and not swallowed
-        $proc = Start-Process -FilePath "git" -ArgumentList "clone `"$GitLabUrl`" `"$TargetDir`"" -NoNewWindow -Wait -PassThru
+
+        # Use Start-Process with argument array to ensure proper path handling
+        $proc = Start-Process -FilePath "git" -ArgumentList @("clone", $GitLabUrl, $TargetDir) -NoNewWindow -Wait -PassThru
         
         if ($proc.ExitCode -ne 0) { 
             Fail "git clone from GitLab failed (Exit Code: $($proc.ExitCode))." 
@@ -222,8 +222,8 @@ switch ($Mode) {
         Write-Host "Cloning from GitHub into: $TargetDir"
         Write-Host "Command: git clone `"$GitHubUrl`" `"$TargetDir`"" -ForegroundColor Gray
 
-        # Use Start-Process to ensure output is visible and not swallowed
-        $proc = Start-Process -FilePath "git" -ArgumentList "clone `"$GitHubUrl`" `"$TargetDir`"" -NoNewWindow -Wait -PassThru
+        # Use Start-Process with argument array to ensure proper path handling
+        $proc = Start-Process -FilePath "git" -ArgumentList @("clone", $GitHubUrl, $TargetDir) -NoNewWindow -Wait -PassThru
 
         if ($proc.ExitCode -ne 0) { 
             Fail "git clone from GitHub failed (Exit Code: $($proc.ExitCode))." 
