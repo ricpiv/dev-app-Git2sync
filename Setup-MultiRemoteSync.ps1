@@ -125,10 +125,12 @@ function Configure-Identity {
     if (-not [string]::IsNullOrWhiteSpace($UserEmail)) {
         Write-Host "Setting user.email to: $UserEmail"
         git config user.email $UserEmail
+        if ($LASTEXITCODE -ne 0) { Write-Warning "Failed to set user.email" }
     }
     if (-not [string]::IsNullOrWhiteSpace($UserName)) {
         Write-Host "Setting user.name to: $UserName"
         git config user.name $UserName
+        if ($LASTEXITCODE -ne 0) { Write-Warning "Failed to set user.name" }
     }
 }
 
@@ -138,11 +140,13 @@ switch ($Mode) {
 
     "FromGitLab" {
         $TargetDir = $Path
+        $ParentDir = $null
         
         if (Test-Path -LiteralPath $Path) {
             # Path exists -> Treat as Parent
             $repoName = Get-RepoName $GitLabUrl
             $TargetDir = Join-Path $Path $repoName
+            $ParentDir = $Path
             if (Test-Path -LiteralPath $TargetDir) {
                 Fail "Mode 'FromGitLab': Target folder already exists: $TargetDir"
             }
@@ -150,13 +154,29 @@ switch ($Mode) {
         } else {
             # Path does not exist -> Treat as Target
             Ensure-ParentDir $Path
+            $ParentDir = Split-Path -Parent $Path
         }
 
         Write-Host "Cloning from GitLab into: $TargetDir"
-        git clone $GitLabUrl $TargetDir
-        if ($LASTEXITCODE -ne 0) { Fail "git clone from GitLab failed." }
+        Write-Host "Command: git clone `"$GitLabUrl`" `"$TargetDir`"" -ForegroundColor Gray
+        
+        # Use Start-Process to ensure output is visible and not swallowed
+        $proc = Start-Process -FilePath "git" -ArgumentList "clone `"$GitLabUrl`" `"$TargetDir`"" -NoNewWindow -Wait -PassThru
+        
+        if ($proc.ExitCode -ne 0) { 
+            Fail "git clone from GitLab failed (Exit Code: $($proc.ExitCode))." 
+        }
 
-        Set-Location $TargetDir
+        if (-not (Test-Path -LiteralPath $TargetDir)) {
+            Write-Host "⚠️  DEBUG: Target directory NOT found: $TargetDir" -ForegroundColor Red
+            if ($ParentDir) {
+                Write-Host "Contents of parent directory ($ParentDir):" -ForegroundColor Gray
+                Get-ChildItem -LiteralPath $ParentDir | Select-Object Name, Mode, LastWriteTime | Format-Table -AutoSize
+            }
+            Fail "Git clone appeared to succeed, but target directory was not created: $TargetDir"
+        }
+
+        Set-Location $TargetDir -ErrorAction Stop
 
         # Configure Identity
         Configure-Identity
@@ -182,11 +202,13 @@ switch ($Mode) {
 
     "FromGitHub" {
         $TargetDir = $Path
+        $ParentDir = $null
         
         if (Test-Path -LiteralPath $Path) {
             # Path exists -> Treat as Parent
             $repoName = Get-RepoName $GitHubUrl
             $TargetDir = Join-Path $Path $repoName
+            $ParentDir = $Path
             if (Test-Path -LiteralPath $TargetDir) {
                 Fail "Mode 'FromGitHub': Target folder already exists: $TargetDir"
             }
@@ -194,13 +216,29 @@ switch ($Mode) {
         } else {
             # Path does not exist -> Treat as Target
             Ensure-ParentDir $Path
+            $ParentDir = Split-Path -Parent $Path
         }
 
         Write-Host "Cloning from GitHub into: $TargetDir"
-        git clone $GitHubUrl $TargetDir
-        if ($LASTEXITCODE -ne 0) { Fail "git clone from GitHub failed." }
+        Write-Host "Command: git clone `"$GitHubUrl`" `"$TargetDir`"" -ForegroundColor Gray
 
-        Set-Location $TargetDir
+        # Use Start-Process to ensure output is visible and not swallowed
+        $proc = Start-Process -FilePath "git" -ArgumentList "clone `"$GitHubUrl`" `"$TargetDir`"" -NoNewWindow -Wait -PassThru
+
+        if ($proc.ExitCode -ne 0) { 
+            Fail "git clone from GitHub failed (Exit Code: $($proc.ExitCode))." 
+        }
+
+        if (-not (Test-Path -LiteralPath $TargetDir)) {
+            Write-Host "⚠️  DEBUG: Target directory NOT found: $TargetDir" -ForegroundColor Red
+            if ($ParentDir) {
+                Write-Host "Contents of parent directory ($ParentDir):" -ForegroundColor Gray
+                Get-ChildItem -LiteralPath $ParentDir | Select-Object Name, Mode, LastWriteTime | Format-Table -AutoSize
+            }
+            Fail "Git clone appeared to succeed, but target directory was not created: $TargetDir"
+        }
+
+        Set-Location $TargetDir -ErrorAction Stop
 
         # Configure Identity
         Configure-Identity
@@ -228,7 +266,7 @@ switch ($Mode) {
             Fail "Mode 'Existing': project folder does not exist: $Path"
         }
 
-        Set-Location $Path
+        Set-Location $Path -ErrorAction Stop
 
         # Check that it's a git repo
         $isRepo = git rev-parse --is-inside-work-tree 2>$null
