@@ -22,6 +22,7 @@ This assistant configures Git so that:
 - You have **a single remote** called `origin`
 - `origin` **fetches** from your primary platform (GitLab or GitHub)
 - `origin` **pushes** to **both** GitLab and GitHub
+- (Optional) Configures your **Git Identity** (`user.email` and `user.name`) locally for the project
 
 It does **not** modify:
 
@@ -92,8 +93,8 @@ C:\Dev\my-new-repo
 
 Depending on your scenario, the script will either:
 
-- **Create the project folder**  
-- or **Use an existing folder**
+- **Create the project folder** (if you pass the parent directory)
+- or **Use an existing folder** (if you pass the full path)
 
 ---
 
@@ -115,18 +116,21 @@ Use this mode when:
 
 ```powershell
 Setup-MultiRemoteSync.ps1 `
-  -ProjectPath "C:\Dev\my-new-project" `
+  -Path "C:\Dev" `
   -GitLabUrl  "https://gitlab.iconsulting.biz/USER/my-new-project.git" `
   -GitHubUrl  "https://github.com/USER/my-new-project.git" `
   -Mode FromGitLab `
+  -UserEmail "user@example.com" `
+  -UserName "My Name" `
   -SyncNow
 ```
 
 ### Result
 
-- The project folder is created  
+- The project folder is created inside `C:\Dev` (e.g., `C:\Dev\my-new-project`)
 - Code is cloned from GitLab  
 - GitHub becomes a **push-only mirror**  
+- Git identity is configured locally
 - One push updates both repositories  
 
 ---
@@ -143,16 +147,18 @@ Use this mode when:
 
 ```powershell
 Setup-MultiRemoteSync.ps1 `
-  -ProjectPath "C:\Dev\my-github-project" `
+  -Path "C:\Dev\my-github-project" `
   -GitLabUrl  "https://gitlab.iconsulting.biz/USER/my-github-project.git" `
   -GitHubUrl  "https://github.com/USER/my-github-project.git" `
   -Mode FromGitHub `
+  -UserEmail "user@example.com" `
+  -UserName "My Name" `
   -SyncNow
 ```
 
 ### Result
 
-- Folder is created  
+- Folder is created (if it doesn't exist)
 - Code is cloned from GitHub  
 - GitLab is added as a push mirror  
 - One push updates both platforms  
@@ -173,7 +179,7 @@ Use this mode when:
 
 ```powershell
 Setup-MultiRemoteSync.ps1 `
-  -ProjectPath "C:\Dev\genai-prompt-collection" `
+  -Path "C:\Dev\genai-prompt-collection" `
   -GitLabUrl  "https://gitlab.iconsulting.biz/USER/genai-prompt-collection.git" `
   -GitHubUrl  "https://github.com/USER/GenAI-Prompt-Collection.git" `
   -Mode Existing `
@@ -219,13 +225,20 @@ If you want the tool to immediately push all branches and tags after configurati
 -SyncNow
 ```
 
-Example:
+**Note**: If the repository is empty (no commits), `-SyncNow` will be skipped to avoid errors. You must create an initial commit first.
 
-```powershell
--SyncNow
+---
+
+# 👤 Optional: Git Identity
+
+You can configure your local git identity for the project during setup:
+
+```
+-UserEmail "user@example.com"
+-UserName "Your Name"
 ```
 
-Skip this if you only want to configure the remotes without pushing.
+This sets `user.email` and `user.name` in the local `.git/config` file.
 
 ---
 
@@ -237,7 +250,9 @@ Skip this if you only want to configure the remotes without pushing.
   - `FromGitLab` for new GitLab projects  
   - `FromGitHub` for new GitHub projects  
   - `Existing` for fixing local projects  
-- Always specify the full `-ProjectPath`
+- Use `-Path` flexibly:
+  - Pass the **Parent Directory** (e.g. `C:\Dev`) to clone inside it.
+  - Pass the **Target Directory** (e.g. `C:\Dev\MyApp`) to clone as that folder.
 - Use `-Primary GitLab` if GitLab is your main workspace
 
 ---
@@ -261,4 +276,3 @@ Skip this if you only want to configure the remotes without pushing.
 ---
 
 This assistant keeps your projects synchronized between GitLab and GitHub with a single push and minimal setup.
-

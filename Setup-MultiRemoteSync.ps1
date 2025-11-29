@@ -26,6 +26,12 @@ param(
     [ValidateSet("GitLab", "GitHub")]
     [string]$Primary = "GitLab",
 
+    # Optional: Configure local git user email
+    [string]$UserEmail,
+
+    # Optional: Configure local git user name
+    [string]$UserName,
+
     # If set, pushes all branches and tags to origin after configuration.
     # This is disabled by default to avoid accidental pushes.
     [switch]$SyncNow
@@ -59,6 +65,8 @@ if ([string]::IsNullOrWhiteSpace($Path) -or
     Write-Host "                  'FromGitHub' : Clone from GitHub, add GitLab as mirror."
     Write-Host "                  'Existing'   : Configure an existing local repo."
     Write-Host "  -Primary      : (Optional) Which remote to fetch from (Default: GitLab)."
+    Write-Host "  -UserEmail    : (Optional) Set 'user.email' for this repo."
+    Write-Host "  -UserName     : (Optional) Set 'user.name' for this repo."
     Write-Host "  -SyncNow      : (Optional) Immediately push all branches/tags to both remotes."
     Write-Host ""
     Write-Host "Examples:" -ForegroundColor Green
@@ -105,6 +113,25 @@ function Get-RepoName([string]$url) {
     return ($url -split '/')[-1] -replace '\.git$', ''
 }
 
+# --- Helper: Check if repo is empty ---------------------------------------
+function Test-RepoEmpty {
+    # If HEAD doesn't resolve to a commit, it's likely empty (or corrupt, but we assume empty for new clones)
+    git rev-parse --verify HEAD 2>&1 | Out-Null
+    return $LASTEXITCODE -ne 0
+}
+
+# --- Helper: Configure Git Identity ---------------------------------------
+function Configure-Identity {
+    if (-not [string]::IsNullOrWhiteSpace($UserEmail)) {
+        Write-Host "Setting user.email to: $UserEmail"
+        git config user.email $UserEmail
+    }
+    if (-not [string]::IsNullOrWhiteSpace($UserName)) {
+        Write-Host "Setting user.name to: $UserName"
+        git config user.name $UserName
+    }
+}
+
 # --- Mode handling ---------------------------------------------------------
 
 switch ($Mode) {
@@ -131,6 +158,9 @@ switch ($Mode) {
 
         Set-Location $TargetDir
 
+        # Configure Identity
+        Configure-Identity
+
         # Ensure origin fetch = GitLab, add GitHub as extra push URL
         git remote set-url origin $GitLabUrl  | Out-Null
         if ($LASTEXITCODE -ne 0) { Fail "Failed to set origin URL to GitLab." }
@@ -143,6 +173,11 @@ switch ($Mode) {
         }
 
         Write-Host "✅ Multi-remote configured (primary: GitLab, mirror: GitHub)."
+        
+        if (Test-RepoEmpty) {
+            Write-Host "⚠️  WARNING: Repository appears to be empty (no commits)." -ForegroundColor Yellow
+            Write-Host "   You must create a commit (e.g. 'git commit --allow-empty -m \"Initial commit\"') before pushing." -ForegroundColor Yellow
+        }
     }
 
     "FromGitHub" {
@@ -167,6 +202,9 @@ switch ($Mode) {
 
         Set-Location $TargetDir
 
+        # Configure Identity
+        Configure-Identity
+
         # Ensure origin fetch = GitHub, add GitLab as extra push URL
         git remote set-url origin $GitHubUrl  | Out-Null
         if ($LASTEXITCODE -ne 0) { Fail "Failed to set origin URL to GitHub." }
@@ -178,6 +216,11 @@ switch ($Mode) {
         }
 
         Write-Host "✅ Multi-remote configured (primary: GitHub, mirror: GitLab)."
+        
+        if (Test-RepoEmpty) {
+            Write-Host "⚠️  WARNING: Repository appears to be empty (no commits)." -ForegroundColor Yellow
+            Write-Host "   You must create a commit (e.g. 'git commit --allow-empty -m \"Initial commit\"') before pushing." -ForegroundColor Yellow
+        }
     }
 
     "Existing" {
@@ -192,6 +235,9 @@ switch ($Mode) {
         if ($LASTEXITCODE -ne 0 -or $isRepo -ne "true") {
             Fail "Mode 'Existing': $Path is not a Git repository."
         }
+
+        # Configure Identity
+        Configure-Identity
 
         # Ensure origin exists (or create it)
         $originExists = $false
@@ -239,14 +285,19 @@ Write-Host "`nCurrent remotes:"
 git remote -v
 
 if ($SyncNow) {
-    Write-Host "`nPushing all branches and tags to origin (all configured push URLs)..."
-    git push origin --all
-    if ($LASTEXITCODE -ne 0) { Fail "Failed to push branches." }
+    if (Test-RepoEmpty) {
+        Write-Host "`n⚠️  Skipping -SyncNow because the repository is empty." -ForegroundColor Yellow
+        Write-Host "   Create a commit first, then run 'git push origin --all'" -ForegroundColor Yellow
+    } else {
+        Write-Host "`nPushing all branches and tags to origin (all configured push URLs)..."
+        git push origin --all
+        if ($LASTEXITCODE -ne 0) { Fail "Failed to push branches." }
 
-    git push origin --tags
-    if ($LASTEXITCODE -ne 0) { Fail "Failed to push tags." }
+        git push origin --tags
+        if ($LASTEXITCODE -ne 0) { Fail "Failed to push tags." }
 
-    Write-Host "✅ Sync complete."
+        Write-Host "✅ Sync complete."
+    }
 } else {
     Write-Host "`n(no automatic push performed; use -SyncNow to push branches/tags)"
 }
