@@ -301,19 +301,25 @@ switch ($Mode) {
             $secondaryUrl = $GitLabUrl
         }
 
-        Write-Host "Setting origin primary (fetch) to $($Primary): $primaryUrl"
-        git remote set-url origin $primaryUrl | Out-Null
-        if ($LASTEXITCODE -ne 0) { Fail "Failed to set origin primary URL." }
+        Write-Host "Reconfiguring origin remote for multi-remote sync..."
 
-        # Make sure secondary URL is present as a push URL
-        $remotes = git remote -v
-        if ($remotes -notmatch [regex]::Escape($secondaryUrl)) {
-            Write-Host "Adding secondary push URL: $secondaryUrl"
-            git remote set-url --add origin $secondaryUrl | Out-Null
-            if ($LASTEXITCODE -ne 0) { Fail "Failed to add secondary push URL." }
-        } else {
-            Write-Host "Secondary push URL is already configured."
-        }
+        # Remove existing origin remote and recreate it to avoid conflicts
+        # This ensures clean state when switching between configurations
+        git remote remove origin 2>$null
+
+        # Add origin with primary URL (this sets both fetch and push to primary)
+        git remote add origin $primaryUrl | Out-Null
+        if ($LASTEXITCODE -ne 0) { Fail "Failed to add origin remote with primary URL." }
+
+        Write-Host "Primary (fetch) URL set to $($Primary): $primaryUrl"
+
+        # Add secondary URL as additional push target
+        Write-Host "Adding secondary push URL: $secondaryUrl"
+        git remote set-url --add --push origin $primaryUrl | Out-Null
+        if ($LASTEXITCODE -ne 0) { Fail "Failed to set primary push URL." }
+
+        git remote set-url --add --push origin $secondaryUrl | Out-Null
+        if ($LASTEXITCODE -ne 0) { Fail "Failed to add secondary push URL." }
 
         Write-Host "✅ Existing repo updated for multi-remote sync (primary: $Primary)."
     }
