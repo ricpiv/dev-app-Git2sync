@@ -3,10 +3,10 @@
     Sets up a Git repository with multiple remotes (GitLab and GitHub) for synchronization.
 #>
 param(
-    # Full path (or relative) to the project folder on disk.
-    # - For new projects: folder will be created (parent must exist).
-    # - For existing projects: folder must already exist and contain a .git directory.
-    [string]$ProjectPath,
+    # Full path to the project folder (target) OR the parent directory (root).
+    # - If path exists: treated as Parent Directory (repo will be cloned inside).
+    # - If path does not exist: treated as Target Directory (repo will be cloned as this name).
+    [string]$Path,
 
     # GitLab repository URL (mandatory in all modes).
     [string]$GitLabUrl,
@@ -33,7 +33,7 @@ param(
 
 # --- Help / Usage Check ----------------------------------------------------
 
-if ([string]::IsNullOrWhiteSpace($ProjectPath) -or 
+if ([string]::IsNullOrWhiteSpace($Path) -or 
     [string]::IsNullOrWhiteSpace($GitLabUrl) -or 
     [string]::IsNullOrWhiteSpace($GitHubUrl) -or 
     [string]::IsNullOrWhiteSpace($Mode)) {
@@ -46,10 +46,12 @@ if ([string]::IsNullOrWhiteSpace($ProjectPath) -or
     Write-Host "It ensures that 'git push' updates both remotes simultaneously."
     Write-Host ""
     Write-Host "Usage:" -ForegroundColor Green
-    Write-Host "  .\Setup-MultiRemoteSync.ps1 -ProjectPath <path> -GitLabUrl <url> -GitHubUrl <url> -Mode <mode> [options]"
+    Write-Host "  .\Setup-MultiRemoteSync.ps1 -Path <path> -GitLabUrl <url> -GitHubUrl <url> -Mode <mode> [options]"
     Write-Host ""
     Write-Host "Parameters:" -ForegroundColor Green
-    Write-Host "  -ProjectPath  : Path to the local project folder."
+    Write-Host "  -Path         : Target project path OR Parent directory."
+    Write-Host "                  - If folder exists: Repo is cloned INSIDE this folder."
+    Write-Host "                  - If folder missing: Repo is cloned AS this folder."
     Write-Host "  -GitLabUrl    : URL of the GitLab repository."
     Write-Host "  -GitHubUrl    : URL of the GitHub repository."
     Write-Host "  -Mode         : One of the following:"
@@ -60,11 +62,11 @@ if ([string]::IsNullOrWhiteSpace($ProjectPath) -or
     Write-Host "  -SyncNow      : (Optional) Immediately push all branches/tags to both remotes."
     Write-Host ""
     Write-Host "Examples:" -ForegroundColor Green
-    Write-Host "  1. Clone from GitLab and setup mirror:"
-    Write-Host "     .\Setup-MultiRemoteSync.ps1 -ProjectPath 'C:\Repos\MyApp' -GitLabUrl '...' -GitHubUrl '...' -Mode FromGitLab"
+    Write-Host "  1. Clone from GitLab into C:\Repos (creates C:\Repos\MyApp):"
+    Write-Host "     .\Setup-MultiRemoteSync.ps1 -Path 'C:\Repos' -GitLabUrl '...' -GitHubUrl '...' -Mode FromGitLab"
     Write-Host ""
-    Write-Host "  2. Configure existing folder:"
-    Write-Host "     .\Setup-MultiRemoteSync.ps1 -ProjectPath 'C:\Repos\MyApp' -GitLabUrl '...' -GitHubUrl '...' -Mode Existing"
+    Write-Host "  2. Clone from GitLab as specific folder C:\Apps\MyNewApp:"
+    Write-Host "     .\Setup-MultiRemoteSync.ps1 -Path 'C:\Apps\MyNewApp' -GitLabUrl '...' -GitHubUrl '...' -Mode FromGitLab"
     Write-Host ""
     exit 0
 }
@@ -81,12 +83,10 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 }
 
 # Normalize path
-$resolvedPath = Resolve-Path -LiteralPath $ProjectPath -ErrorAction SilentlyContinue
+$resolvedPath = Resolve-Path -LiteralPath $Path -ErrorAction SilentlyContinue
 if ($resolvedPath) {
-    $ProjectPath = $resolvedPath.Path
+    $Path = $resolvedPath.Path
 }
-
-$projectDirExists = Test-Path -LiteralPath $ProjectPath
 
 # --- Helper: ensure parent directory exists -------------------------------
 
@@ -100,22 +100,36 @@ function Ensure-ParentDir([string]$path) {
     }
 }
 
+# --- Helper: Get Repo Name from URL ---------------------------------------
+function Get-RepoName([string]$url) {
+    return ($url -split '/')[-1] -replace '\.git$', ''
+}
+
 # --- Mode handling ---------------------------------------------------------
 
 switch ($Mode) {
 
     "FromGitLab" {
-        if ($projectDirExists) {
-            Fail "Mode 'FromGitLab': project folder already exists: $ProjectPath"
+        $TargetDir = $Path
+        
+        if (Test-Path -LiteralPath $Path) {
+            # Path exists -> Treat as Parent
+            $repoName = Get-RepoName $GitLabUrl
+            $TargetDir = Join-Path $Path $repoName
+            if (Test-Path -LiteralPath $TargetDir) {
+                Fail "Mode 'FromGitLab': Target folder already exists: $TargetDir"
+            }
+            Write-Host "Path '$Path' exists. Cloning '$repoName' inside it."
+        } else {
+            # Path does not exist -> Treat as Target
+            Ensure-ParentDir $Path
         }
 
-        Ensure-ParentDir $ProjectPath
-
-        Write-Host "Cloning from GitLab into: $ProjectPath"
-        git clone $GitLabUrl $ProjectPath
+        Write-Host "Cloning from GitLab into: $TargetDir"
+        git clone $GitLabUrl $TargetDir
         if ($LASTEXITCODE -ne 0) { Fail "git clone from GitLab failed." }
 
-        Set-Location $ProjectPath
+        Set-Location $TargetDir
 
         # Ensure origin fetch = GitLab, add GitHub as extra push URL
         git remote set-url origin $GitLabUrl  | Out-Null
@@ -132,17 +146,26 @@ switch ($Mode) {
     }
 
     "FromGitHub" {
-        if ($projectDirExists) {
-            Fail "Mode 'FromGitHub': project folder already exists: $ProjectPath"
+        $TargetDir = $Path
+        
+        if (Test-Path -LiteralPath $Path) {
+            # Path exists -> Treat as Parent
+            $repoName = Get-RepoName $GitHubUrl
+            $TargetDir = Join-Path $Path $repoName
+            if (Test-Path -LiteralPath $TargetDir) {
+                Fail "Mode 'FromGitHub': Target folder already exists: $TargetDir"
+            }
+            Write-Host "Path '$Path' exists. Cloning '$repoName' inside it."
+        } else {
+            # Path does not exist -> Treat as Target
+            Ensure-ParentDir $Path
         }
 
-        Ensure-ParentDir $ProjectPath
-
-        Write-Host "Cloning from GitHub into: $ProjectPath"
-        git clone $GitHubUrl $ProjectPath
+        Write-Host "Cloning from GitHub into: $TargetDir"
+        git clone $GitHubUrl $TargetDir
         if ($LASTEXITCODE -ne 0) { Fail "git clone from GitHub failed." }
 
-        Set-Location $ProjectPath
+        Set-Location $TargetDir
 
         # Ensure origin fetch = GitHub, add GitLab as extra push URL
         git remote set-url origin $GitHubUrl  | Out-Null
@@ -158,16 +181,16 @@ switch ($Mode) {
     }
 
     "Existing" {
-        if (-not $projectDirExists) {
-            Fail "Mode 'Existing': project folder does not exist: $ProjectPath"
+        if (-not (Test-Path -LiteralPath $Path)) {
+            Fail "Mode 'Existing': project folder does not exist: $Path"
         }
 
-        Set-Location $ProjectPath
+        Set-Location $Path
 
         # Check that it's a git repo
         $isRepo = git rev-parse --is-inside-work-tree 2>$null
         if ($LASTEXITCODE -ne 0 -or $isRepo -ne "true") {
-            Fail "Mode 'Existing': $ProjectPath is not a Git repository."
+            Fail "Mode 'Existing': $Path is not a Git repository."
         }
 
         # Ensure origin exists (or create it)
